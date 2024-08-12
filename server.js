@@ -5,23 +5,21 @@ const cors = require("cors");
 
 const app = express();
 
-const port = process.env.PORT;
-
 require("dotenv").config();
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-});
-
 // const pool = new Pool({
-//   user: "postgres",
-//   host: "localhost",
-//   database: "detect_LLM",
-//   password: "root",
-//   port: 5432,
+//   connectionString: process.env.POSTGRES_URL,
 // });
+
+const pool = new Pool({
+  user: "postgres",
+  host: "localhost",
+  database: "detect_LLM",
+  password: "root",
+  port: 5432,
+});
 
 // // Endpoint to get a scenario
 // app.get("/api/scenario/:id", async (req, res) => {
@@ -97,8 +95,8 @@ app.post("/api/save-user", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+app.listen(process.env.PORT, () => {
+  console.log(`Server running on port ${process.env.PORT}`);
 });
 
 // app.get("/api/total-scenarios", async (req, res) => {
@@ -115,54 +113,76 @@ app.listen(port, () => {
 app.get("/api/study-data", async (req, res) => {
   try {
     const scenariosQuery = "SELECT * FROM scenarios ORDER BY id";
-    const tacticsQuery = "SELECT DISTINCT tactic FROM benchmark_prompts";
+    const promptsQuery = `
+      SELECT tactic, COUNT(*) OVER(PARTITION BY tactic) as tactic_count, * 
+      FROM benchmark_prompts
+    `;
+    const totalPromptsQuery = "SELECT COUNT(*) as total FROM benchmark_prompts";
 
-    const [scenariosResult, tacticsResult] = await Promise.all([
-      pool.query(scenariosQuery),
-      pool.query(tacticsQuery),
-    ]);
+    const [scenariosResult, promptsResult, totalPromptsResult] =
+      await Promise.all([
+        pool.query(scenariosQuery),
+        pool.query(promptsQuery),
+        pool.query(totalPromptsQuery),
+      ]);
 
     const scenarios = scenariosResult.rows;
-    const tactics = tacticsResult.rows.map((row) => row.tactic);
+    const prompts = promptsResult.rows;
+    const totalPrompts = parseInt(totalPromptsResult.rows[0].total);
 
-    let prompts = [];
-    for (const tactic of tactics) {
-      const promptsQuery = `
-        SELECT * FROM benchmark_prompts 
-        WHERE tactic = $1
-      `;
-      const promptsResult = await pool.query(promptsQuery, [tactic]);
-      const tacticPrompts = promptsResult.rows;
+    const totalQuestions = 41; // Define the total number of questions
 
-      // Shuffle and select 5 random prompts
-      for (let i = tacticPrompts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tacticPrompts[i], tacticPrompts[j]] = [
-          tacticPrompts[j],
-          tacticPrompts[i],
-        ];
+    const promptsPerTactic = {};
+    prompts.forEach((prompt) => {
+      if (!promptsPerTactic[prompt.tactic]) {
+        promptsPerTactic[prompt.tactic] = Math.round(
+          (prompt.tactic_count / totalPrompts) * totalQuestions
+        );
       }
-      prompts.push(...tacticPrompts.slice(0, 5));
-    }
+    });
 
-    // Shuffle all selected prompts
+    // Shuffle prompts
     for (let i = prompts.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [prompts[i], prompts[j]] = [prompts[j], prompts[i]];
     }
 
+    // Distribute prompts per tactic
+    const selectedPrompts = {};
+    Object.keys(promptsPerTactic).forEach((tactic) => {
+      selectedPrompts[tactic] = prompts
+        .filter((prompt) => prompt.tactic === tactic)
+        .slice(0, promptsPerTactic[tactic]);
+    });
+
+    // Flatten selected prompts
+    const flattenedPrompts = Object.values(selectedPrompts).flat();
+
+    // Shuffle all selected prompts
+    for (let i = flattenedPrompts.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [flattenedPrompts[i], flattenedPrompts[j]] = [
+        flattenedPrompts[j],
+        flattenedPrompts[i],
+      ];
+    }
+
     // Distribute prompts evenly across scenarios
-    const promptsPerScenario = Math.ceil(prompts.length / scenarios.length);
+    const promptsPerScenario = Math.ceil(
+      flattenedPrompts.length / scenarios.length
+    );
     const distributedPrompts = scenarios.map((scenario, index) => ({
       ...scenario,
-      prompts: prompts.slice(
+      prompts: flattenedPrompts.slice(
         index * promptsPerScenario,
         (index + 1) * promptsPerScenario
       ),
     }));
 
     // Handle excess prompts
-    const excessPrompts = prompts.slice(scenarios.length * promptsPerScenario);
+    const excessPrompts = flattenedPrompts.slice(
+      scenarios.length * promptsPerScenario
+    );
     if (excessPrompts.length > 0) {
       distributedPrompts[distributedPrompts.length - 1].prompts.push(
         ...excessPrompts
@@ -171,7 +191,7 @@ app.get("/api/study-data", async (req, res) => {
 
     res.json({
       scenarios: distributedPrompts,
-      totalPrompts: prompts.length,
+      totalPrompts: flattenedPrompts.length,
       promptsPerScenario,
     });
   } catch (err) {
