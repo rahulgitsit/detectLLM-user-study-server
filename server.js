@@ -9,17 +9,17 @@ require("dotenv").config();
 app.use(cors());
 app.use(express.json());
 
-// const pool = new Pool({
-//   connectionString: process.env.POSTGRES_URL,
-// });
-
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "detect_LLM",
-  password: "root",
-  port: 5432,
+  connectionString: process.env.POSTGRES_URL,
 });
+
+// const pool = new Pool({
+//   user: "postgres",
+//   host: "localhost",
+//   database: "detect_LLM",
+//   password: "root",
+//   port: 5432,
+// });
 
 // // Endpoint to get a scenario
 // app.get("/api/scenario/:id", async (req, res) => {
