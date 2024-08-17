@@ -9,17 +9,19 @@ require("dotenv").config();
 app.use(cors());
 app.use(express.json());
 
+// const pool = new Pool({
+//   connectionString: process.env.POSTGRES_URL,
+// });
+
 const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
+  user: "postgres",
+  host: "localhost",
+  database: "detect_LLM",
+  password: "root",
+  port: 5432,
 });
 
-// const pool = new Pool({
-//   user: "postgres",
-//   host: "localhost",
-//   database: "detect_LLM",
-//   password: "root",
-//   port: 5432,
-// });
+const totalQuestions = 10; // Define the total number of questions
 
 // // Endpoint to get a scenario
 // app.get("/api/scenario/:id", async (req, res) => {
@@ -53,7 +55,7 @@ app.post("/api/save-conversation", async (req, res) => {
   try {
     const {
       uid,
-      u_name,
+      // u_name,
       scenario_id,
       first_message,
       benchmark_prompt,
@@ -62,10 +64,10 @@ app.post("/api/save-conversation", async (req, res) => {
       timestamp,
     } = req.body;
     const result = await pool.query(
-      "INSERT INTO saved_conversations (u_id, u_name, scenario_id, first_message, benchmark_prompt, user_response, response_time, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING *",
+      "INSERT INTO saved_conversations (u_id, scenario_id, first_message, benchmark_prompt, user_response, response_time, timestamp) VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING *",
       [
         uid,
-        u_name,
+        // u_name,
         scenario_id,
         first_message,
         benchmark_prompt,
@@ -83,10 +85,10 @@ app.post("/api/save-conversation", async (req, res) => {
 // Endpoint to save user details
 app.post("/api/save-user", async (req, res) => {
   try {
-    const { u_id, u_name, age, occupation, highest_edu_lvl } = req.body;
+    const { u_id, age, occupation, highest_edu_lvl } = req.body;
     const result = await pool.query(
-      "INSERT INTO users (u_id, u_name, age, occupation, highest_edu_lvl) VALUES ($1, $2, $3, $4, $5) RETURNING u_id",
-      [u_id, u_name, age, occupation, highest_edu_lvl]
+      "INSERT INTO users (u_id, age, occupation, highest_edu_lvl) VALUES ($1, $2, $3, $4) RETURNING u_id",
+      [u_id, age, occupation, highest_edu_lvl]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -129,8 +131,6 @@ app.get("/api/study-data", async (req, res) => {
     const scenarios = scenariosResult.rows;
     const prompts = promptsResult.rows;
     const totalPrompts = parseInt(totalPromptsResult.rows[0].total);
-
-    const totalQuestions = 41; // Define the total number of questions
 
     const promptsPerTactic = {};
     prompts.forEach((prompt) => {
@@ -194,6 +194,54 @@ app.get("/api/study-data", async (req, res) => {
       totalPrompts: flattenedPrompts.length,
       promptsPerScenario,
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+function generateRandomCode() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for (let i = 0; i < 7; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+app.post("/api/generate-code", async (req, res) => {
+  try {
+    const { uid } = req.body;
+    if (!uid) {
+      return res.status(400).json({ error: "UUID is required" });
+    }
+
+    const userResult = await pool.query(
+      "SELECT u_id FROM users WHERE u_id = $1",
+      [uid]
+    );
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const conversationCountResult = await pool.query(
+      "SELECT COUNT(*) as count FROM saved_conversations WHERE u_id = $1",
+      [uid]
+    );
+    const conversationCount = parseInt(conversationCountResult.rows[0].count);
+    if (conversationCount < totalQuestions) {
+      return res.status(400).json({ error: "Survey not finished!" });
+    }
+
+    const code = generateRandomCode();
+
+    // Save the generated code to the users table
+    await pool.query("UPDATE users SET reward_code = $1 WHERE u_id = $2", [
+      code,
+      uid,
+    ]);
+
+    res.json({ code });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
