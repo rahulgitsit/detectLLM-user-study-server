@@ -21,8 +21,7 @@ const pool = new Pool({
 //   port: 5432,
 // });
 
-const totalQuestions = 10; // Define the total number of questions
-
+const totalQuestions = process.env.TOTAL_QUESTIONS || 41;
 // // Endpoint to get a scenario
 // app.get("/api/scenario/:id", async (req, res) => {
 //   try {
