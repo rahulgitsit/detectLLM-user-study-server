@@ -9,27 +9,27 @@ require("dotenv").config();
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-});
-
 // const pool = new Pool({
-//   user: "postgres",
-//   host: "localhost",
-//   database: "detect_LLM",
-//   password: "root",
-//   port: 5432,
+//   connectionString: process.env.POSTGRES_URL,
 // });
+
+const pool = new Pool({
+  user: "postgres",
+  host: "localhost",
+  database: "detect_LLM",
+  password: "root",
+  port: 5432,
+});
 
 const totalQuestions = process.env.TOTAL_QUESTIONS || 41;
 
 // Endpoint to save captcha responses
 app.post("/api/save-captcha-response", async (req, res) => {
   try {
-    const { uid, prompt, user_response } = req.body;
+    const { uid, tactic, technique, prompt, user_response } = req.body;
     const result = await pool.query(
-      "INSERT INTO captcha_responses (uid, prompt, user_response, timestamp) VALUES ($1, $2, $3, NOW()) RETURNING *",
-      [uid, prompt, user_response]
+      "INSERT INTO captcha_responses (uid, tactic, technique, prompt, user_response, timestamp) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *",
+      [uid, tactic, technique, prompt, user_response]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -45,6 +45,8 @@ app.post("/api/save-conversation", async (req, res) => {
       uid,
       // u_name,
       scenario_id,
+      tactic,
+      technique,
       first_message,
       benchmark_prompt,
       user_response,
@@ -52,11 +54,13 @@ app.post("/api/save-conversation", async (req, res) => {
       timestamp,
     } = req.body;
     const result = await pool.query(
-      "INSERT INTO saved_conversations (u_id, scenario_id, first_message, benchmark_prompt, user_response, response_time, timestamp) VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING *",
+      "INSERT INTO saved_conversations (u_id, scenario_id, tactic, technique, first_message, benchmark_prompt, user_response, response_time, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *",
       [
         uid,
         // u_name,
         scenario_id,
+        tactic,
+        technique,
         first_message,
         benchmark_prompt,
         user_response,
